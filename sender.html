@@ -2,26 +2,31 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>画面＆音声 送信ツール v1.0.2</title>
+    <title>画面＆音声 送信ツール v1.0.3</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
         body { font-family: sans-serif; padding: 20px; background: #1a1a1a; color: #fff; }
-        .box { background: #2a2a2a; padding: 20px; border-radius: 8px; max-width: 400px; position: relative; }
-        .version { position: absolute; top: 10px; right: 10px; font-size: 11px; background: #ffc107; color: #000; padding: 2px 6px; border-radius: 4px; font-weight: bold; }
+        .box { background: #2a2a2a; padding: 20px; border-radius: 8px; max-width: 400px; }
+        .header { display: flex; justify-content: space-between; align-items: center; }
+        .version { background: #ffc107; color: #000; padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 12px; }
         input, button { width: 100%; padding: 10px; margin-top: 10px; box-sizing: border-box; }
         button { background: #007bff; color: white; border: none; font-weight: bold; cursor: pointer; }
         button:disabled { background: #555; }
-        #status { margin-top: 15px; font-weight: bold; color: #ffca28; }
+        #status { margin-top: 15px; font-weight: bold; color: #ffca28; word-break: break-all; }
     </style>
 </head>
 <body>
     <div class="box">
-        <div class="version">v1.0.2</div>
-        <h2>画面・音声 送信</h2>
-        <label>パスワード (共有キー)</label>
-        <input type="password" id="pass" placeholder="パスワードを入力">
-        <button id="startBtn">画面とマイクを選択して開始</button>
-        <div id="status">待機中</div>
+        <div class="header">
+            <h2 style="margin:0;">画面・音声 送信</h2>
+            <span class="version">v1.0.3</span>
+        </div>
+        <div style="margin-top: 15px;">
+            <label>パスワード (共有キー)</label>
+            <input type="password" id="pass" placeholder="半角英数字で入力">
+            <button id="startBtn">画面とマイクを選択して開始</button>
+        </div>
+        <div id="status">状態: 待機中</div>
     </div>
 
     <script>
@@ -33,7 +38,7 @@
             if (!pass) return alert('パスワードを入力してください');
 
             try {
-                // 1. 画面共有（映像＋PCシステム音声）
+                // 1. 画面共有
                 const displayStream = await navigator.mediaDevices.getDisplayMedia({
                     video: { frameRate: { ideal: 60, max: 60 } },
                     audio: true
@@ -65,29 +70,28 @@
                     ...dest.stream.getAudioTracks()
                 ]);
 
-                status.innerText = 'サーバー接続中...';
+                status.innerText = '状態: サーバー接続中...';
                 
-                const peerId = 'yshere-' + encodeURIComponent(pass);
+                // 英数字のみに変換して安全なIDを作成
+                const safePass = btoa(unescape(encodeURIComponent(pass))).replace(/=/g, '');
+                const peerId = 'yshere-v103-' + safePass;
+                
                 const peer = new Peer(peerId);
 
                 peer.on('open', () => {
-                    status.innerText = '接続待機中... (OBS側を開いてください)';
+                    status.innerText = '状態: 接続待機中 (OBS側を開いてください)';
+                    status.style.color = '#ffca28';
                     startBtn.disabled = true;
                 });
 
                 peer.on('call', (call) => {
-                    // 受信側へ映像・音声を送信
                     call.answer(combinedStream);
-                    status.innerText = '配信中！(OBSへ接続されました)';
+                    status.innerText = '状態: 配信中！(OBSへ接続されました)';
                     status.style.color = '#4caf50';
                 });
 
                 peer.on('error', (err) => {
-                    if (err.type === 'unavailable-id') {
-                        status.innerText = 'エラー: このパスワードは使用中です。時間を置くか別のパスワードにしてください。';
-                    } else {
-                        status.innerText = 'エラー: ' + err.type;
-                    }
+                    status.innerText = 'エラー: ' + err.type + ' (' + err.message + ')';
                     status.style.color = '#f44336';
                 });
 
