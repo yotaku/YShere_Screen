@@ -2,11 +2,12 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>画面＆音声 送信ツール</title>
+    <title>画面＆音声 送信ツール v1.0.1</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
         body { font-family: sans-serif; padding: 20px; background: #1a1a1a; color: #fff; }
-        .box { background: #2a2a2a; padding: 20px; border-radius: 8px; max-width: 400px; }
+        .box { background: #2a2a2a; padding: 20px; border-radius: 8px; max-width: 400px; position: relative; }
+        .version { position: absolute; top: 10px; right: 10px; font-size: 11px; background: #ffc107; color: #000; padding: 2px 6px; border-radius: 4px; font-weight: bold; }
         input, button { width: 100%; padding: 10px; margin-top: 10px; box-sizing: border-box; }
         button { background: #007bff; color: white; border: none; font-weight: bold; cursor: pointer; }
         button:disabled { background: #555; }
@@ -15,6 +16,7 @@
 </head>
 <body>
     <div class="box">
+        <div class="version">v1.0.1</div>
         <h2>画面・音声 送信</h2>
         <label>パスワード (共有キー)</label>
         <input type="password" id="pass" placeholder="パスワードを入力">
@@ -27,7 +29,7 @@
         const status = document.getElementById('status');
 
         startBtn.onclick = async () => {
-            const pass = document.getElementById('pass').value;
+            const pass = document.getElementById('pass').value.trim();
             if (!pass) return alert('パスワードを入力してください');
 
             try {
@@ -42,10 +44,10 @@
                 try {
                     micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
                 } catch (e) {
-                    console.log('マイクが選択されなかったか拒否されました');
+                    console.log('マイク未選択');
                 }
 
-                // 3. 画面音声とマイク音声を1つのトラックに合成 (Web Audio API)
+                // 3. 画面音声とマイク音声を合成
                 const audioCtx = new AudioContext();
                 const dest = audioCtx.createMediaStreamDestination();
 
@@ -58,21 +60,24 @@
                     micSource.connect(dest);
                 }
 
-                // 合成ストリームの作成 (映像: 画面共有, 音声: 合成音声)
+                // 合成ストリーム作成
                 const combinedStream = new MediaStream([
                     ...displayStream.getVideoTracks(),
                     ...dest.stream.getAudioTracks()
                 ]);
 
-                // 4. PeerJS接続 (IDにパスワードを直接利用)
                 status.innerText = 'サーバー接続中...';
-                const peer = new Peer('sender-' + pass);
+                
+                // PeerID生成（小文字統一＆特殊文字対策）
+                const peerId = 'yshere-' + encodeURIComponent(pass);
+                const peer = new Peer(peerId);
 
                 peer.on('open', () => {
                     status.innerText = '接続待機中... (OBS側を開いてください)';
                     startBtn.disabled = true;
                 });
 
+                // 着信を受けたら映像ストリームを返す
                 peer.on('call', (call) => {
                     call.answer(combinedStream);
                     status.innerText = '配信中！(OBSへ接続されました)';
@@ -80,7 +85,11 @@
                 });
 
                 peer.on('error', (err) => {
-                    status.innerText = 'エラー: ' + err.type;
+                    if (err.type === 'unavailable-id') {
+                        status.innerText = 'エラー: このパスワードは既に使用されています。変更してください。';
+                    } else {
+                        status.innerText = 'エラー: ' + err.type;
+                    }
                     status.style.color = '#f44336';
                 });
 
