@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>OBS用 受信画面 v1.0.1</title>
+    <title>OBS用 受信画面 v1.0.2</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
         body { margin: 0; background: #000; color: #fff; overflow: hidden; font-family: sans-serif; }
@@ -15,7 +15,7 @@
 </head>
 <body>
     <div id="setup">
-        <span>受信ツール <span class="version">v1.0.1</span></span>
+        <span>受信ツール <span class="version">v1.0.2</span></span>
         <div style="margin-top: 8px;">
             <input type="password" id="pass" placeholder="パスワードを入力">
             <button id="connectBtn">受信開始</button>
@@ -34,7 +34,17 @@
         const urlParams = new URLSearchParams(window.location.search);
         const passParam = urlParams.get('pass');
 
-        let retryTimer = null;
+        // WebRTC通信を成立させるためのダミー音声ストリームを作成する関数
+        function createDummyStream() {
+            const ctx = new AudioContext();
+            const osc = ctx.createOscillator();
+            const dst = ctx.createMediaStreamDestination();
+            osc.connect(dst);
+            osc.start();
+            const track = dst.stream.getAudioTracks()[0];
+            track.enabled = false; // 無音化
+            return new MediaStream([track]);
+        }
 
         function startConnect(pass) {
             pass = pass.trim();
@@ -44,43 +54,34 @@
 
             peer.on('open', () => {
                 const targetId = 'yshere-' + encodeURIComponent(pass);
-                
-                function makeCall() {
-                    console.log('接続発信:', targetId);
-                    // 空ストリームを作成して発信
-                    const call = peer.call(targetId, new MediaStream());
+                const dummyStream = createDummyStream();
+                let activeCall = null;
 
-                    let connected = false;
+                function attemptCall() {
+                    if (activeCall) activeCall.close();
 
-                    call.on('stream', (remoteStream) => {
-                        connected = true;
-                        if (retryTimer) clearInterval(retryTimer);
+                    console.log('発信試行:', targetId);
+                    activeCall = peer.call(targetId, dummyStream);
 
+                    activeCall.on('stream', (remoteStream) => {
+                        console.log('ストリーム受信成功！');
                         video.srcObject = remoteStream;
+                        
                         video.play().then(() => {
                             video.muted = false;
                             status.innerText = '接続完了！';
                             status.style.color = '#4caf50';
-                            // 5秒後にUI枠を消す（OBS画面を綺麗にするため）
-                            setTimeout(() => { setup.style.opacity = '0.2'; }, 3000);
+                            setTimeout(() => { setup.style.opacity = '0.15'; }, 2000);
                         }).catch(e => {
-                            console.log('自動再生制約あり、ミュートで再生');
+                            console.log('自動再生制約対応');
                             video.muted = true;
                             video.play();
+                            status.innerText = '接続完了 (ミュート再生中)';
                         });
                     });
-
-                    // 4秒待っても応答がなければ再試行するタイマー
-                    setTimeout(() => {
-                        if (!connected) {
-                            status.innerText = '送信側を探しています... (再試行中)';
-                        }
-                    }, 2500);
                 }
 
-                makeCall();
-                // 5秒おきに自動リトライ
-                retryTimer = setInterval(makeCall, 5000);
+                attemptCall();
             });
 
             peer.on('error', (err) => {
