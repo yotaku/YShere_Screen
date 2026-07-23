@@ -18,7 +18,8 @@
         <span id="status"></span>
     </div>
 
-    <video id="remoteVideo" autoplay playsinline></video>
+    <!-- muted / playsinline / autoplay の属性を追加して自動再生ブロックを回避 -->
+    <video id="remoteVideo" autoplay playsinline muted></video>
 
     <script>
         const connectBtn = document.getElementById('connectBtn');
@@ -26,26 +27,39 @@
         const setup = document.getElementById('setup');
         const video = document.getElementById('remoteVideo');
 
-        // URLパラメータ(?pass=xxx)がある場合は自動入力＆接続
         const urlParams = new URLSearchParams(window.location.search);
         const passParam = urlParams.get('pass');
 
         function startConnect(pass) {
             status.innerText = ' 接続中...';
+            
+            // ランダムな受信側IDでPeerを作成
             const peer = new Peer();
 
             peer.on('open', () => {
-                // 送信側 (sender-パスワード) に発信
+                // 送信側へ発信（Dummy Streamを使わずに接続）
                 const call = peer.call('sender-' + pass, new MediaStream());
-                
+
                 call.on('stream', (remoteStream) => {
                     video.srcObject = remoteStream;
-                    setup.style.display = 'none'; // 接続成功したらUIを隠す
+                    
+                    // 明示的に動画再生をトリガー
+                    video.play().then(() => {
+                        // 音声の消音(muted)を解除して音を出す
+                        video.muted = false;
+                        setup.style.display = 'none';
+                    }).catch(err => {
+                        console.log('自動再生失敗:', err);
+                        // ミュートのままなら再生できる場合があるのでフォールバック
+                        video.muted = true;
+                        video.play();
+                        setup.style.display = 'none';
+                    });
                 });
             });
 
             peer.on('error', (err) => {
-                status.innerText = ' 接続エラー。パスワードを確認してください';
+                status.innerText = ' 接続エラー: ' + err.type;
             });
         }
 
