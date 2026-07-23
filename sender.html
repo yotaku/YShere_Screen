@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>画面＆音声 送信ツール v1.0.1</title>
+    <title>画面＆音声 送信ツール v1.0.2</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
         body { font-family: sans-serif; padding: 20px; background: #1a1a1a; color: #fff; }
@@ -16,7 +16,7 @@
 </head>
 <body>
     <div class="box">
-        <div class="version">v1.0.1</div>
+        <div class="version">v1.0.2</div>
         <h2>画面・音声 送信</h2>
         <label>パスワード (共有キー)</label>
         <input type="password" id="pass" placeholder="パスワードを入力">
@@ -33,13 +33,13 @@
             if (!pass) return alert('パスワードを入力してください');
 
             try {
-                // 1. 画面共有（映像＋PCシステム音声）の取得
+                // 1. 画面共有（映像＋PCシステム音声）
                 const displayStream = await navigator.mediaDevices.getDisplayMedia({
                     video: { frameRate: { ideal: 60, max: 60 } },
                     audio: true
                 });
 
-                // 2. マイク音声の取得
+                // 2. マイク音声
                 let micStream = null;
                 try {
                     micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
@@ -47,7 +47,7 @@
                     console.log('マイク未選択');
                 }
 
-                // 3. 画面音声とマイク音声を合成
+                // 3. 音声の合成
                 const audioCtx = new AudioContext();
                 const dest = audioCtx.createMediaStreamDestination();
 
@@ -60,7 +60,6 @@
                     micSource.connect(dest);
                 }
 
-                // 合成ストリーム作成
                 const combinedStream = new MediaStream([
                     ...displayStream.getVideoTracks(),
                     ...dest.stream.getAudioTracks()
@@ -68,7 +67,6 @@
 
                 status.innerText = 'サーバー接続中...';
                 
-                // PeerID生成（小文字統一＆特殊文字対策）
                 const peerId = 'yshere-' + encodeURIComponent(pass);
                 const peer = new Peer(peerId);
 
@@ -77,8 +75,8 @@
                     startBtn.disabled = true;
                 });
 
-                // 着信を受けたら映像ストリームを返す
                 peer.on('call', (call) => {
+                    // 受信側へ映像・音声を送信
                     call.answer(combinedStream);
                     status.innerText = '配信中！(OBSへ接続されました)';
                     status.style.color = '#4caf50';
@@ -86,7 +84,7 @@
 
                 peer.on('error', (err) => {
                     if (err.type === 'unavailable-id') {
-                        status.innerText = 'エラー: このパスワードは既に使用されています。変更してください。';
+                        status.innerText = 'エラー: このパスワードは使用中です。時間を置くか別のパスワードにしてください。';
                     } else {
                         status.innerText = 'エラー: ' + err.type;
                     }
