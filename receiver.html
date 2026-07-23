@@ -2,23 +2,27 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>OBS用 受信画面</title>
+    <title>OBS用 受信画面 v1.0.1</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
         body { margin: 0; background: #000; color: #fff; overflow: hidden; font-family: sans-serif; }
-        #setup { position: absolute; top: 20px; left: 20px; z-index: 10; background: rgba(0,0,0,0.8); padding: 15px; border-radius: 8px; }
-        video { width: 100vw; height: 100vh; object-fit: contain; }
-        input, button { padding: 8px; }
+        #setup { position: absolute; top: 10px; left: 10px; z-index: 10; background: rgba(0,0,0,0.85); padding: 12px 16px; border-radius: 8px; font-size: 13px; }
+        .version { display: inline-block; background: #ffc107; color: #000; padding: 1px 5px; border-radius: 3px; font-weight: bold; margin-left: 5px; }
+        video { width: 100vw; height: 100vh; object-fit: contain; background: #000; }
+        input, button { padding: 6px 10px; font-size: 13px; }
+        #status { margin-left: 8px; color: #ffca28; }
     </style>
 </head>
 <body>
     <div id="setup">
-        <input type="password" id="pass" placeholder="パスワードを入力">
-        <button id="connectBtn">受信開始</button>
-        <span id="status"></span>
+        <span>受信ツール <span class="version">v1.0.1</span></span>
+        <div style="margin-top: 8px;">
+            <input type="password" id="pass" placeholder="パスワードを入力">
+            <button id="connectBtn">受信開始</button>
+            <span id="status">待機中</span>
+        </div>
     </div>
 
-    <!-- muted / playsinline / autoplay の属性を追加して自動再生ブロックを回避 -->
     <video id="remoteVideo" autoplay playsinline muted></video>
 
     <script>
@@ -30,36 +34,57 @@
         const urlParams = new URLSearchParams(window.location.search);
         const passParam = urlParams.get('pass');
 
+        let retryTimer = null;
+
         function startConnect(pass) {
-            status.innerText = ' 接続中...';
+            pass = pass.trim();
+            status.innerText = '接続試行中...';
             
-            // ランダムな受信側IDでPeerを作成
             const peer = new Peer();
 
             peer.on('open', () => {
-                // 送信側へ発信（Dummy Streamを使わずに接続）
-                const call = peer.call('sender-' + pass, new MediaStream());
+                const targetId = 'yshere-' + encodeURIComponent(pass);
+                
+                function makeCall() {
+                    console.log('接続発信:', targetId);
+                    // 空ストリームを作成して発信
+                    const call = peer.call(targetId, new MediaStream());
 
-                call.on('stream', (remoteStream) => {
-                    video.srcObject = remoteStream;
-                    
-                    // 明示的に動画再生をトリガー
-                    video.play().then(() => {
-                        // 音声の消音(muted)を解除して音を出す
-                        video.muted = false;
-                        setup.style.display = 'none';
-                    }).catch(err => {
-                        console.log('自動再生失敗:', err);
-                        // ミュートのままなら再生できる場合があるのでフォールバック
-                        video.muted = true;
-                        video.play();
-                        setup.style.display = 'none';
+                    let connected = false;
+
+                    call.on('stream', (remoteStream) => {
+                        connected = true;
+                        if (retryTimer) clearInterval(retryTimer);
+
+                        video.srcObject = remoteStream;
+                        video.play().then(() => {
+                            video.muted = false;
+                            status.innerText = '接続完了！';
+                            status.style.color = '#4caf50';
+                            // 5秒後にUI枠を消す（OBS画面を綺麗にするため）
+                            setTimeout(() => { setup.style.opacity = '0.2'; }, 3000);
+                        }).catch(e => {
+                            console.log('自動再生制約あり、ミュートで再生');
+                            video.muted = true;
+                            video.play();
+                        });
                     });
-                });
+
+                    // 4秒待っても応答がなければ再試行するタイマー
+                    setTimeout(() => {
+                        if (!connected) {
+                            status.innerText = '送信側を探しています... (再試行中)';
+                        }
+                    }, 2500);
+                }
+
+                makeCall();
+                // 5秒おきに自動リトライ
+                retryTimer = setInterval(makeCall, 5000);
             });
 
             peer.on('error', (err) => {
-                status.innerText = ' 接続エラー: ' + err.type;
+                status.innerText = 'エラー: ' + err.type;
             });
         }
 
