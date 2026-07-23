@@ -2,103 +2,102 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>画面＆音声 送信ツール v1.0.3</title>
+    <title>OBS用 受信画面 v1.0.3</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
-        body { font-family: sans-serif; padding: 20px; background: #1a1a1a; color: #fff; }
-        .box { background: #2a2a2a; padding: 20px; border-radius: 8px; max-width: 400px; }
-        .header { display: flex; justify-content: space-between; align-items: center; }
-        .version { background: #ffc107; color: #000; padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 12px; }
-        input, button { width: 100%; padding: 10px; margin-top: 10px; box-sizing: border-box; }
-        button { background: #007bff; color: white; border: none; font-weight: bold; cursor: pointer; }
-        button:disabled { background: #555; }
-        #status { margin-top: 15px; font-weight: bold; color: #ffca28; word-break: break-all; }
+        body { margin: 0; background: #000; color: #fff; overflow: hidden; font-family: sans-serif; }
+        #setup { position: absolute; top: 10px; left: 10px; z-index: 10; background: rgba(0,0,0,0.9); padding: 15px; border-radius: 8px; font-size: 13px; border: 1px solid #444; width: 320px; }
+        .version { background: #ffc107; color: #000; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 11px; float: right; }
+        video { width: 100vw; height: 100vh; object-fit: contain; background: #000; }
+        input, button { padding: 8px; font-size: 13px; margin-top: 5px; width: 100%; box-sizing: border-box; }
+        button { background: #28a745; color: #fff; border: none; font-weight: bold; cursor: pointer; }
+        #log { margin-top: 10px; font-family: monospace; font-size: 11px; color: #00ff66; max-height: 120px; overflow-y: auto; background: #111; padding: 6px; border-radius: 4px; word-break: break-all; }
     </style>
 </head>
 <body>
-    <div class="box">
-        <div class="header">
-            <h2 style="margin:0;">画面・音声 送信</h2>
-            <span class="version">v1.0.3</span>
+    <div id="setup">
+        <span class="version">v1.0.3</span>
+        <b style="font-size: 14px;">OBS 受信ツール</b>
+        <div style="margin-top: 10px;">
+            <input type="password" id="pass" placeholder="パスワードを入力">
+            <button id="connectBtn">受信開始</button>
         </div>
-        <div style="margin-top: 15px;">
-            <label>パスワード (共有キー)</label>
-            <input type="password" id="pass" placeholder="半角英数字で入力">
-            <button id="startBtn">画面とマイクを選択して開始</button>
-        </div>
-        <div id="status">状態: 待機中</div>
+        <div id="log">ログ: 待機中</div>
     </div>
 
+    <video id="remoteVideo" autoplay playsinline muted></video>
+
     <script>
-        const startBtn = document.getElementById('startBtn');
-        const status = document.getElementById('status');
+        const connectBtn = document.getElementById('connectBtn');
+        const log = document.getElementById('log');
+        const setup = document.getElementById('setup');
+        const video = document.getElementById('remoteVideo');
 
-        startBtn.onclick = async () => {
-            const pass = document.getElementById('pass').value.trim();
-            if (!pass) return alert('パスワードを入力してください');
+        const urlParams = new URLSearchParams(window.location.search);
+        const passParam = urlParams.get('pass');
 
-            try {
-                // 1. 画面共有
-                const displayStream = await navigator.mediaDevices.getDisplayMedia({
-                    video: { frameRate: { ideal: 60, max: 60 } },
-                    audio: true
+        function addLog(msg) {
+            console.log(msg);
+            log.innerText += '\n' + msg;
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function startConnect(pass) {
+            pass = pass.trim();
+            log.innerText = 'ログ: 処理開始...';
+            
+            // 安全なID変換
+            const safePass = btoa(unescape(encodeURIComponent(pass))).replace(/=/g, '');
+            const targetId = 'yshere-v103-' + safePass;
+
+            addLog('シグナリングサーバー接続中...');
+            const peer = new Peer();
+
+            peer.on('open', (myId) => {
+                addLog('サーバー接続完了');
+                addLog('送信側へ発信試行中...');
+
+                // ダミーキャンバス映像を作成して送信側に渡す（WebRTC完全開通のため）
+                const canvas = document.createElement('canvas');
+                canvas.width = 1; canvas.height = 1;
+                const dummyStream = canvas.captureStream();
+
+                const call = peer.call(targetId, dummyStream);
+
+                call.on('stream', (remoteStream) => {
+                    addLog('★ 映像ストリームを受信しました！');
+                    video.srcObject = remoteStream;
+                    
+                    video.play().then(() => {
+                        video.muted = false;
+                        addLog('再生成功！');
+                        setTimeout(() => { setup.style.display = 'none'; }, 2000);
+                    }).catch(e => {
+                        addLog('自動再生ブロック制限: ミュート再生');
+                        video.muted = true;
+                        video.play();
+                        setTimeout(() => { setup.style.display = 'none'; }, 2000);
+                    });
                 });
 
-                // 2. マイク音声
-                let micStream = null;
-                try {
-                    micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-                } catch (e) {
-                    console.log('マイク未選択');
-                }
+                call.on('close', () => addLog('切断されました'));
+                call.on('error', (e) => addLog('Callエラー: ' + e));
+            });
 
-                // 3. 音声の合成
-                const audioCtx = new AudioContext();
-                const dest = audioCtx.createMediaStreamDestination();
+            peer.on('error', (err) => {
+                addLog('Peerエラー: ' + err.type);
+            });
+        }
 
-                if (displayStream.getAudioTracks().length > 0) {
-                    const displaySource = audioCtx.createMediaStreamSource(displayStream);
-                    displaySource.connect(dest);
-                }
-                if (micStream && micStream.getAudioTracks().length > 0) {
-                    const micSource = audioCtx.createMediaStreamSource(micStream);
-                    micSource.connect(dest);
-                }
-
-                const combinedStream = new MediaStream([
-                    ...displayStream.getVideoTracks(),
-                    ...dest.stream.getAudioTracks()
-                ]);
-
-                status.innerText = '状態: サーバー接続中...';
-                
-                // 英数字のみに変換して安全なIDを作成
-                const safePass = btoa(unescape(encodeURIComponent(pass))).replace(/=/g, '');
-                const peerId = 'yshere-v103-' + safePass;
-                
-                const peer = new Peer(peerId);
-
-                peer.on('open', () => {
-                    status.innerText = '状態: 接続待機中 (OBS側を開いてください)';
-                    status.style.color = '#ffca28';
-                    startBtn.disabled = true;
-                });
-
-                peer.on('call', (call) => {
-                    call.answer(combinedStream);
-                    status.innerText = '状態: 配信中！(OBSへ接続されました)';
-                    status.style.color = '#4caf50';
-                });
-
-                peer.on('error', (err) => {
-                    status.innerText = 'エラー: ' + err.type + ' (' + err.message + ')';
-                    status.style.color = '#f44336';
-                });
-
-            } catch (err) {
-                alert('画面共有の取得に失敗しました: ' + err.message);
-            }
+        connectBtn.onclick = () => {
+            const pass = document.getElementById('pass').value;
+            if (pass) startConnect(pass);
         };
+
+        if (passParam) {
+            document.getElementById('pass').value = passParam;
+            startConnect(passParam);
+        }
     </script>
 </body>
 </html>
