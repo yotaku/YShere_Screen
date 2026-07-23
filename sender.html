@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>画面＆音声 送信ツール</title>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        body { font-family: sans-serif; padding: 20px; background: #1a1a1a; color: #fff; }
+        .box { background: #2a2a2a; padding: 20px; border-radius: 8px; max-width: 400px; }
+        input, button { width: 100%; padding: 10px; margin-top: 10px; box-sizing: border-box; }
+        button { background: #007bff; color: white; border: none; font-weight: bold; cursor: pointer; }
+        button:disabled { background: #555; }
+        #status { margin-top: 15px; font-weight: bold; color: #ffca28; }
+    </style>
+</head>
+<body>
+    <div class="box">
+        <h2>画面・音声 送信</h2>
+        <label>パスワード (共有キー)</label>
+        <input type="password" id="pass" placeholder="パスワードを入力">
+        <button id="startBtn">画面とマイクを選択して開始</button>
+        <div id="status">待機中</div>
+    </div>
+
+    <script>
+        const startBtn = document.getElementById('startBtn');
+        const status = document.getElementById('status');
+
+        startBtn.onclick = async () => {
+            const pass = document.getElementById('pass').value;
+            if (!pass) return alert('パスワードを入力してください');
+
+            try {
+                // 1. 画面共有（映像＋PCシステム音声）の取得
+                const displayStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: { frameRate: { ideal: 60, max: 60 } },
+                    audio: true
+                });
+
+                // 2. マイク音声の取得
+                let micStream = null;
+                try {
+                    micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                } catch (e) {
+                    console.log('マイクが選択されなかったか拒否されました');
+                }
+
+                // 3. 画面音声とマイク音声を1つのトラックに合成 (Web Audio API)
+                const audioCtx = new AudioContext();
+                const dest = audioCtx.createMediaStreamDestination();
+
+                if (displayStream.getAudioTracks().length > 0) {
+                    const displaySource = audioCtx.createMediaStreamSource(displayStream);
+                    displaySource.connect(dest);
+                }
+                if (micStream && micStream.getAudioTracks().length > 0) {
+                    const micSource = audioCtx.createMediaStreamSource(micStream);
+                    micSource.connect(dest);
+                }
+
+                // 合成ストリームの作成 (映像: 画面共有, 音声: 合成音声)
+                const combinedStream = new MediaStream([
+                    ...displayStream.getVideoTracks(),
+                    ...dest.stream.getAudioTracks()
+                ]);
+
+                // 4. PeerJS接続 (IDにパスワードを直接利用)
+                status.innerText = 'サーバー接続中...';
+                const peer = new Peer('sender-' + pass);
+
+                peer.on('open', () => {
+                    status.innerText = '接続待機中... (OBS側を開いてください)';
+                    startBtn.disabled = true;
+                });
+
+                peer.on('call', (call) => {
+                    call.answer(combinedStream);
+                    status.innerText = '配信中！(OBSへ接続されました)';
+                    status.style.color = '#4caf50';
+                });
+
+                peer.on('error', (err) => {
+                    status.innerText = 'エラー: ' + err.type;
+                    status.style.color = '#f44336';
+                });
+
+            } catch (err) {
+                alert('画面共有の取得に失敗しました: ' + err.message);
+            }
+        };
+    </script>
+</body>
+</html>

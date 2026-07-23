@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>OBS用 受信画面</title>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        body { margin: 0; background: #000; color: #fff; overflow: hidden; font-family: sans-serif; }
+        #setup { position: absolute; top: 20px; left: 20px; z-index: 10; background: rgba(0,0,0,0.8); padding: 15px; border-radius: 8px; }
+        video { width: 100vw; height: 100vh; object-fit: contain; }
+        input, button { padding: 8px; }
+    </style>
+</head>
+<body>
+    <div id="setup">
+        <input type="password" id="pass" placeholder="パスワードを入力">
+        <button id="connectBtn">受信開始</button>
+        <span id="status"></span>
+    </div>
+
+    <video id="remoteVideo" autoplay playsinline></video>
+
+    <script>
+        const connectBtn = document.getElementById('connectBtn');
+        const status = document.getElementById('status');
+        const setup = document.getElementById('setup');
+        const video = document.getElementById('remoteVideo');
+
+        // URLパラメータ(?pass=xxx)がある場合は自動入力＆接続
+        const urlParams = new URLSearchParams(window.location.search);
+        const passParam = urlParams.get('pass');
+
+        function startConnect(pass) {
+            status.innerText = ' 接続中...';
+            const peer = new Peer();
+
+            peer.on('open', () => {
+                // 送信側 (sender-パスワード) に発信
+                const call = peer.call('sender-' + pass, new MediaStream());
+                
+                call.on('stream', (remoteStream) => {
+                    video.srcObject = remoteStream;
+                    setup.style.display = 'none'; // 接続成功したらUIを隠す
+                });
+            });
+
+            peer.on('error', (err) => {
+                status.innerText = ' 接続エラー。パスワードを確認してください';
+            });
+        }
+
+        connectBtn.onclick = () => {
+            const pass = document.getElementById('pass').value;
+            if (pass) startConnect(pass);
+        };
+
+        if (passParam) {
+            document.getElementById('pass').value = passParam;
+            startConnect(passParam);
+        }
+    </script>
+</body>
+</html>
