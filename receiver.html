@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>OBS用 受信画面 v1.0.5</title>
+    <title>OBS用 受信画面 v1.0.6</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
         body { margin: 0; background: #000; color: #fff; overflow: hidden; font-family: sans-serif; }
@@ -16,7 +16,7 @@
 </head>
 <body>
     <div id="setup">
-        <span class="version">v1.0.5</span>
+        <span class="version">v1.0.6</span>
         <b style="font-size: 14px;">OBS 受信ツール</b>
         <div style="margin-top: 10px;">
             <input type="password" id="pass" placeholder="パスワードを入力">
@@ -47,7 +47,7 @@
             log.innerText = 'ログ: 接続処理中...';
             
             const safePass = btoa(unescape(encodeURIComponent(pass))).replace(/=/g, '');
-            const targetId = 'yshere-v105-' + safePass;
+            const targetId = 'yshere-v106-' + safePass;
 
             const peer = new Peer();
 
@@ -66,21 +66,15 @@
                     
                     addLog(`受信: 映像 ${vTracks.length}本 / 音声 ${aTracks.length}本`);
 
-                    if (vTracks.length === 0) {
-                        addLog('⚠️ 映像トラックが含まれていません！');
-                        return;
-                    }
-
                     video.srcObject = remoteStream;
 
-                    // 映像の描画イベント
                     video.onloadedmetadata = () => {
-                        addLog(`映像解像度: ${video.videoWidth} x ${video.videoHeight}`);
+                        addLog(`解像度: ${video.videoWidth} x ${video.videoHeight}`);
                     };
 
                     video.play().then(() => {
+                        video.muted = false; // ミュート解除
                         addLog('再生成功！');
-                        // 画面が映っていればUIを隠す
                         setTimeout(() => { setup.style.opacity = '0.1'; }, 3000);
                     }).catch(e => {
                         addLog('再生エラー: ' + e.message);
