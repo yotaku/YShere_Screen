@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>画面＆音声 送信ツール v1.0.6</title>
+    <title>画面＆音声 送信ツール v1.0.8</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
         body { font-family: sans-serif; padding: 20px; background: #1a1a1a; color: #fff; }
@@ -20,14 +20,14 @@
     <div class="box">
         <div class="header">
             <h2 style="margin:0;">画面・音声 送信</h2>
-            <span class="version">v1.0.6</span>
+            <span class="version">v1.0.8</span>
         </div>
         <div style="margin-top: 15px;">
             <label>パスワード (共有キー)</label>
             <input type="password" id="pass" placeholder="半角英数字で入力">
-            <button id="startBtn">画面とマイクを選択して開始</button>
+            <button id="startBtn">画面共有を開始する</button>
             <div class="note">
-                ※ 共有選択時、必ずダイアログ左下の<b>「システムのオーディオも共有する」</b>にチェックを入れてください。
+                ※ ダイアログ左下の<b>「システムのオーディオも共有する」</b>をONにしてください。
             </div>
         </div>
         <div id="status">状態: 待機中</div>
@@ -42,7 +42,7 @@
             if (!pass) return alert('パスワードを入力してください');
 
             try {
-                // 1. 画面共有取得
+                // 1. 画面共有の取得 (映像＋システム音声)
                 const displayStream = await navigator.mediaDevices.getDisplayMedia({
                     video: { frameRate: { ideal: 60, max: 60 } },
                     audio: true
@@ -54,57 +54,75 @@
                     return;
                 }
 
-                // 2. マイク音声の取得（失敗してもエラーにしない）
-                let micStream = null;
+                // 2. 画面音声トラックの直接取得
+                const displayAudioTracks = displayStream.getAudioTracks();
+                console.log('取得したシステム音声トラック:', displayAudioTracks);
+
+                // 3. マイク音声の試行（エラーが出ても画面音声の邪魔をしないように完全に分離）
+                let micTrack = null;
                 try {
-                    micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                    const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    if (micStream.getAudioTracks().length > 0) {
+                        micTrack = micStream.getAudioTracks()[0];
+                    }
                 } catch (e) {
-                    console.log('マイク取得スキップまたは拒否:', e);
+                    console.log('マイク不使用、または許可なし');
                 }
 
-                // 3. 音声トラックのビルド
-                const audioTracks = [];
-                const displayAudio = displayStream.getAudioTracks();
-                const micAudio = micStream ? micStream.getAudioTracks() : [];
+                // 4. 音声トラックの整理（画面音声優先）
+                const finalAudioTracks = [];
 
-                if (displayAudio.length > 0 && micAudio.length > 0) {
+                if (displayAudioTracks.length > 0 && micTrack) {
                     // 両方ある場合は Web Audio API でミックス
-                    const audioCtx = new AudioContext();
-                    const dest = audioCtx.createMediaStreamDestination();
-                    
-                    const source1 = audioCtx.createMediaStreamSource(new MediaStream([displayAudio[0]]));
-                    const source2 = audioCtx.createMediaStreamSource(new MediaStream([micAudio[0]]));
-                    
-                    source1.connect(dest);
-                    source2.connect(dest);
-                    
-                    audioTracks.push(...dest.stream.getAudioTracks());
-                } else if (displayAudio.length > 0) {
-                    // 画面音声のみ
-                    audioTracks.push(displayAudio[0]);
-                } else if (micAudio.length > 0) {
-                    // マイク音声のみ
-                    audioTracks.push(micAudio[0]);
+                    try {
+                        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                        if (audioCtx.state === 'suspended') {
+                            await audioCtx.resume();
+                        }
+                        const dest = audioCtx.createMediaStreamDestination();
+                        
+                        const src1 = audioCtx.createMediaStreamSource(new MediaStream([displayAudioTracks[0]]));
+                        const src2 = audioCtx.createMediaStreamSource(new MediaStream([micTrack]));
+                        
+                        src1.connect(dest);
+                        src2.connect(dest);
+                        
+                        finalAudioTracks.push(dest.stream.getAudioTracks()[0]);
+                    } catch (mixErr) {
+                        console.warn('ミックス失敗のためシステム音声を優先します:', mixErr);
+                        finalAudioTracks.push(displayAudioTracks[0]);
+                    }
+                } else if (displayAudioTracks.length > 0) {
+                    // システム音声のみ
+                    finalAudioTracks.push(displayAudioTracks[0]);
+                } else if (micTrack) {
+                    // マイクのみ
+                    finalAudioTracks.push(micTrack);
                 }
 
-                const combinedStream = new MediaStream([vTrack, ...audioTracks]);
+                // ストリーム結合
+                const combinedStream = new MediaStream([vTrack, ...finalAudioTracks]);
 
                 status.innerText = '状態: サーバー接続中...';
                 
                 const safePass = btoa(unescape(encodeURIComponent(pass))).replace(/=/g, '');
-                const peerId = 'yshere-v106-' + safePass;
+                const targetId = 'yshere-v106-' + safePass; // 受信側との互換性保持
                 
-                const peer = new Peer(peerId);
+                const peer = new Peer(targetId);
 
                 peer.on('open', () => {
-                    status.innerText = `状態: 接続待機中 (音声:${audioTracks.length}本)`;
+                    status.innerText = `状態: 接続待機中 (音声:${finalAudioTracks.length}本)`;
                     status.style.color = '#ffca28';
                     startBtn.disabled = true;
+
+                    if (finalAudioTracks.length === 0) {
+                        alert('⚠️ システム音声が検出されませんでした。\nブラウザの共有ダイアログで「システムのオーディオも共有する」がチェックされているか確認してください。');
+                    }
                 });
 
                 peer.on('call', (call) => {
                     call.answer(combinedStream);
-                    status.innerText = `状態: 配信中！ (映像:1本 / 音声:${audioTracks.length}本)`;
+                    status.innerText = `状態: 配信中！ (映像:1本 / 音声:${finalAudioTracks.length}本)`;
                     status.style.color = '#4caf50';
                 });
 
