@@ -2,11 +2,11 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>OBS用 受信画面 v1.0.6</title>
+    <title>OBS用 受信画面 v1.0.7</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
         body { margin: 0; background: #000; color: #fff; overflow: hidden; font-family: sans-serif; }
-        #setup { position: absolute; top: 10px; left: 10px; z-index: 10; background: rgba(0,0,0,0.9); padding: 15px; border-radius: 8px; font-size: 13px; border: 1px solid #444; width: 340px; }
+        #setup { position: absolute; top: 10px; left: 10px; z-index: 10; background: rgba(0,0,0,0.9); padding: 15px; border-radius: 8px; font-size: 13px; border: 1px solid #444; width: 340px; transition: opacity 0.5s; }
         .version { background: #ffc107; color: #000; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 11px; float: right; }
         video { width: 100vw; height: 100vh; object-fit: contain; background: #111; }
         input, button { padding: 8px; font-size: 13px; margin-top: 5px; width: 100%; box-sizing: border-box; }
@@ -16,7 +16,7 @@
 </head>
 <body>
     <div id="setup">
-        <span class="version">v1.0.6</span>
+        <span class="version">v1.0.7</span>
         <b style="font-size: 14px;">OBS 受信ツール</b>
         <div style="margin-top: 10px;">
             <input type="password" id="pass" placeholder="パスワードを入力">
@@ -36,6 +36,8 @@
         const urlParams = new URLSearchParams(window.location.search);
         const passParam = urlParams.get('pass');
 
+        let isPlaying = false; // 再生中フラグ
+
         function addLog(msg) {
             console.log(msg);
             log.innerText += '\n' + msg;
@@ -45,9 +47,10 @@
         function startConnect(pass) {
             pass = pass.trim();
             log.innerText = 'ログ: 接続処理中...';
+            isPlaying = false;
             
             const safePass = btoa(unescape(encodeURIComponent(pass))).replace(/=/g, '');
-            const targetId = 'yshere-v106-' + safePass;
+            const targetId = 'yshere-v106-' + safePass; // v1.0.6の送信側と互換性を保持
 
             const peer = new Peer();
 
@@ -66,19 +69,37 @@
                     
                     addLog(`受信: 映像 ${vTracks.length}本 / 音声 ${aTracks.length}本`);
 
+                    if (isPlaying) return; // 既に再生準備中ならスキップ
+
+                    // 1. ストリームの割り当て
                     video.srcObject = remoteStream;
 
-                    video.onloadedmetadata = () => {
+                    // 2. 映像のメタデータ読み込み完了を待ってから再生
+                    video.onloadedmetadata = async () => {
                         addLog(`解像度: ${video.videoWidth} x ${video.videoHeight}`);
+                        
+                        try {
+                            // まずミュート状態で再生を開始（ブラウザの保護機能対策）
+                            video.muted = true;
+                            await video.play();
+                            
+                            // 再生成功後にミュート解除
+                            video.muted = false;
+                            isPlaying = true;
+                            addLog('★ 映像＆音声 再生成功！');
+                            
+                            setTimeout(() => { setup.style.opacity = '0.1'; }, 3000);
+                        } catch (e) {
+                            addLog('再生エラー: ' + e.message);
+                            // 万が一失敗した場合はミュートのまま再試行
+                            try {
+                                await video.play();
+                                addLog('（ミュート状態で再生を開始しました）');
+                            } catch (err) {
+                                addLog('完全失敗: ' + err.message);
+                            }
+                        }
                     };
-
-                    video.play().then(() => {
-                        video.muted = false; // ミュート解除
-                        addLog('再生成功！');
-                        setTimeout(() => { setup.style.opacity = '0.1'; }, 3000);
-                    }).catch(e => {
-                        addLog('再生エラー: ' + e.message);
-                    });
                 });
 
                 call.on('error', (e) => addLog('Callエラー: ' + e));
