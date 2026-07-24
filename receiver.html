@@ -2,21 +2,21 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>OBS用 受信画面 v1.0.4</title>
+    <title>OBS用 受信画面 v1.0.5</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
         body { margin: 0; background: #000; color: #fff; overflow: hidden; font-family: sans-serif; }
-        #setup { position: absolute; top: 10px; left: 10px; z-index: 10; background: rgba(0,0,0,0.9); padding: 15px; border-radius: 8px; font-size: 13px; border: 1px solid #444; width: 320px; transition: opacity 0.5s; }
+        #setup { position: absolute; top: 10px; left: 10px; z-index: 10; background: rgba(0,0,0,0.9); padding: 15px; border-radius: 8px; font-size: 13px; border: 1px solid #444; width: 340px; }
         .version { background: #ffc107; color: #000; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 11px; float: right; }
-        video { width: 100vw; height: 100vh; object-fit: contain; background: #000; }
+        video { width: 100vw; height: 100vh; object-fit: contain; background: #111; }
         input, button { padding: 8px; font-size: 13px; margin-top: 5px; width: 100%; box-sizing: border-box; }
         button { background: #28a745; color: #fff; border: none; font-weight: bold; cursor: pointer; }
-        #log { margin-top: 10px; font-family: monospace; font-size: 11px; color: #00ff66; max-height: 120px; overflow-y: auto; background: #111; padding: 6px; border-radius: 4px; word-break: break-all; }
+        #log { margin-top: 10px; font-family: monospace; font-size: 11px; color: #00ff66; max-height: 140px; overflow-y: auto; background: #000; padding: 6px; border-radius: 4px; word-break: break-all; white-space: pre-wrap; }
     </style>
 </head>
 <body>
     <div id="setup">
-        <span class="version">v1.0.4</span>
+        <span class="version">v1.0.5</span>
         <b style="font-size: 14px;">OBS 受信ツール</b>
         <div style="margin-top: 10px;">
             <input type="password" id="pass" placeholder="パスワードを入力">
@@ -25,7 +25,6 @@
         <div id="log">ログ: 待機中</div>
     </div>
 
-    <!-- mutedで初期化し、接続後にアンミュートを試みる -->
     <video id="remoteVideo" autoplay playsinline muted></video>
 
     <script>
@@ -45,17 +44,15 @@
 
         function startConnect(pass) {
             pass = pass.trim();
-            log.innerText = 'ログ: 処理開始...';
+            log.innerText = 'ログ: 接続処理中...';
             
             const safePass = btoa(unescape(encodeURIComponent(pass))).replace(/=/g, '');
-            const targetId = 'yshere-v103-' + safePass;
+            const targetId = 'yshere-v105-' + safePass;
 
-            addLog('シグナリングサーバー接続中...');
             const peer = new Peer();
 
-            peer.on('open', (myId) => {
+            peer.on('open', () => {
                 addLog('サーバー接続完了');
-                addLog('送信側へ発信中...');
 
                 const canvas = document.createElement('canvas');
                 canvas.width = 1; canvas.height = 1;
@@ -63,33 +60,37 @@
 
                 const call = peer.call(targetId, dummyStream);
 
-                call.on('stream', async (remoteStream) => {
-                    addLog('★ 映像ストリームを受信！');
-                    video.srcObject = remoteStream;
+                call.on('stream', (remoteStream) => {
+                    const vTracks = remoteStream.getVideoTracks();
+                    const aTracks = remoteStream.getAudioTracks();
+                    
+                    addLog(`受信: 映像 ${vTracks.length}本 / 音声 ${aTracks.length}本`);
 
-                    try {
-                        // 1. まずミュート状態で確実に再生を開始させる
-                        video.muted = true;
-                        await video.play();
-                        
-                        // 2. 再生開始後にミュート解除を試みる
-                        video.muted = false;
-                        addLog('再生＆音声出力 成功！');
-                    } catch (e) {
-                        addLog('自動再生対応: ミュート状態のみで再生中');
+                    if (vTracks.length === 0) {
+                        addLog('⚠️ 映像トラックが含まれていません！');
+                        return;
                     }
 
-                    // 接続成功したら2秒後にログUIを非表示
-                    setTimeout(() => { setup.style.opacity = '0'; }, 2000);
+                    video.srcObject = remoteStream;
+
+                    // 映像の描画イベント
+                    video.onloadedmetadata = () => {
+                        addLog(`映像解像度: ${video.videoWidth} x ${video.videoHeight}`);
+                    };
+
+                    video.play().then(() => {
+                        addLog('再生成功！');
+                        // 画面が映っていればUIを隠す
+                        setTimeout(() => { setup.style.opacity = '0.1'; }, 3000);
+                    }).catch(e => {
+                        addLog('再生エラー: ' + e.message);
+                    });
                 });
 
-                call.on('close', () => addLog('切断されました'));
                 call.on('error', (e) => addLog('Callエラー: ' + e));
             });
 
-            peer.on('error', (err) => {
-                addLog('Peerエラー: ' + err.type);
-            });
+            peer.on('error', (err) => addLog('Peerエラー: ' + err.type));
         }
 
         connectBtn.onclick = () => {
