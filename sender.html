@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>画面＆音声 送信ツール v1.0.3</title>
+    <title>画面＆音声 送信ツール v1.0.5</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
         body { font-family: sans-serif; padding: 20px; background: #1a1a1a; color: #fff; }
@@ -19,7 +19,7 @@
     <div class="box">
         <div class="header">
             <h2 style="margin:0;">画面・音声 送信</h2>
-            <span class="version">v1.0.3</span>
+            <span class="version">v1.0.5</span>
         </div>
         <div style="margin-top: 15px;">
             <label>パスワード (共有キー)</label>
@@ -44,6 +44,12 @@
                     audio: true
                 });
 
+                const vTrack = displayStream.getVideoTracks()[0];
+                if (!vTrack) {
+                    alert('画面キャプチャの取得に失敗しました');
+                    return;
+                }
+
                 // 2. マイク音声
                 let micStream = null;
                 try {
@@ -66,15 +72,14 @@
                 }
 
                 const combinedStream = new MediaStream([
-                    ...displayStream.getVideoTracks(),
+                    vTrack,
                     ...dest.stream.getAudioTracks()
                 ]);
 
                 status.innerText = '状態: サーバー接続中...';
                 
-                // 英数字のみに変換して安全なIDを作成
                 const safePass = btoa(unescape(encodeURIComponent(pass))).replace(/=/g, '');
-                const peerId = 'yshere-v103-' + safePass;
+                const peerId = 'yshere-v105-' + safePass;
                 
                 const peer = new Peer(peerId);
 
@@ -86,17 +91,17 @@
 
                 peer.on('call', (call) => {
                     call.answer(combinedStream);
-                    status.innerText = '状態: 配信中！(OBSへ接続されました)';
+                    status.innerText = `状態: 配信中！(${vTrack.label})`;
                     status.style.color = '#4caf50';
                 });
 
                 peer.on('error', (err) => {
-                    status.innerText = 'エラー: ' + err.type + ' (' + err.message + ')';
+                    status.innerText = 'エラー: ' + err.type;
                     status.style.color = '#f44336';
                 });
 
             } catch (err) {
-                alert('画面共有の取得に失敗しました: ' + err.message);
+                alert('画面共有エラー: ' + err.message);
             }
         };
     </script>
